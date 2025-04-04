@@ -1,0 +1,182 @@
+--- watchDog_V1_5.py	2023-02-16 11:36:42.012791424 -0500
++++ watchdog_patch.py	2023-02-16 11:34:40.873565369 -0500
+@@ -22,13 +22,27 @@
+ from datetime import datetime
+ import traceback
+ 
++class QueueItem_t():
++    def __init__(self):
++        self.time = datetime.now()
++        self.level = 100
++        self.event = " "
++
++    def update(self, event, level):
++        self.time = datetime.now()
++        self.level = level
++        self.event = event
++        return self
++
+ 
+ class tag_state_t:
+     def __init__(self):
+         self.current_state = False
+-        self.previous_state = False
++        self.previous_state = True
+         self.transititon = False
++        self.event =''
+         self.queue = deque()
++        self.queue_item = QueueItem_t()
+ 
+ 
+     def _check_transition(self):
+@@ -41,9 +55,18 @@
+         return False
+ 
+     def Transition(self):
+-
+         return self._check_transition()
+ 
++    def LogEvent(self,event,level, db):
++
++        self.queue_item.update(event, 1)
++        print(str(self.queue_item.time)+" "+str(self.queue_item.event))
++        time.sleep(0.01)
++        
++        db.faultLogInsert(self.queue_item.time, self.queue_item.event)
++        #print(self.queue)
++
++
+         
+         
+ 
+@@ -75,6 +98,7 @@
+             self.thread2 = threading.Thread(target=self.omronConnection, args=(self.event,))
+             self.thread2.start()
+ 
++
+     def getImportedTags(self):
+         return self.connection.tagImportReadAll()
+ 
+@@ -88,6 +112,7 @@
+             try:
+                 self.connection.tableList()
+                 print("MySQL Heartbeat OK")
++                self.connection.deployUpdateDB()
+             except:
+                 # Create Current Connection To Database If it can't read successfully
+                 print("Recreating Database Connection")
+@@ -111,32 +136,27 @@
+             result = self.omronConnection.plcreadsingle("testBOOL")
+             print("PLC Heartbeat OK")
+ 
+-    def checkActualTagValue(self, value):
++    def checkActualTagValue(self, value, tag):
++        #print(value)
+         str_value = str(value)
+-        is_found_fault = str_value.find("testFAULT")
+-        is_found_bypass = str_value.find("testBypass1")
++        is_found_fault = str_value.find(tag)
++        
+         
+ 
+         #check for testFault
+         if is_found_fault != -1 :
+-            #print("fault")
+             is_found_fault = str_value.find("True")
++            is_false = str_value.find("False")
+ 
+-            if is_found_fault != -1:
++            if is_found_fault > -1:
+                 return 1
+-            else:
++            elif is_false > -1:
+                 return 2
+-        #check for Bypass fault
+-        if is_found_bypass != -1 :
+-            #print("bypass")
+-            is_found_bypass = str_value.find("True")
+-            if is_found_fault != -1:
+-                return 1
+             else:
+-                return 2
++                return 0
+ 
+         return 0
+-        #check for positive int
++        
+ 
+        
+ 
+@@ -166,32 +186,31 @@
+                         result = self.omronConnection.plcreadsingle(structureTag)
+                         value = result[structureTag][baseTag]
+ 
+-                        #print(f"{tag} Result: {value}")
+-                        #print(f"type is {type(value)}")
+-                        if self.checkActualTagValue(value) == 1:
++                        
++                        #If Need ever arises to monitior tags of structures, just uncomment the program below
++                        '''if self.checkActualTagValue(value, tag) == 1:
+                             tag_state.current_state = True
+-                            print("True")
+-                        elif self.checkActualTagValue(value) == 2:
+-                            tag_state.state = False
+-                            print("false")
+                         
++                        elif self.checkActualTagValue(value, tag) == 2:
++                            tag_state.state = False'''
+                         
+                     else:
+-                        #print(f"{tag} Result: {self.omronConnection.plcreadsingle(tag)}")
+-                        #print(f"type is {type(self.omronConnection.plcreadsingle(tag))}")
+-                        if self.checkActualTagValue(self.omronConnection.plcreadsingle(tag)) == 1:
++                        
++
++                        if self.checkActualTagValue(self.omronConnection.plcreadsingle(tag), tag) == 1:
+                             tag_state.current_state = True
+-                            print("True")
+-                        elif self.checkActualTagValue(self.omronConnection.plcreadsingle(tag)) == 2:
++                            
++                        elif self.checkActualTagValue(self.omronConnection.plcreadsingle(tag), tag) == 2:
+                             tag_state.current_state = False
+-                            print("false")
++                            
+ 
+                          
+                     is_transition = tag_state.Transition()
+-                    '''if is_transition :
+-                        print("out True")
+-                    else:
+-                        print("out False")'''
++                    if is_transition :
++                        #push data to the queue
++                        tag_state.LogEvent("variable transitioned", 1, self.connection)
++                        print(f"{tag} transitioned")
++                        
+ 
+                 except Exception as e:
+                     tb = traceback.format_exc()
+@@ -202,6 +221,7 @@
+         print(f"Variables total : {var}")
+ 
+     def threadingTagCheckFaultList(self, taglist):
++        self.faultTagList = taglist
+         for tag in taglist:
+             t = threading.Thread(target=self.checkTagStatus, args=(tag,))
+             print(f"Thread Started For Fault Monitoring: {tag}")
+@@ -209,6 +229,7 @@
+             t.start()
+ 
+     def threadingTagCheckBypassList(self, taglist):
++        self.bypassTagList = tagList
+         for tag in taglist:
+             t = threading.Thread(target=self.checkTagStatus, args=(tag,))
+             print(f"Thread Started For Bypass Monitoring: {tag}")
+@@ -257,7 +278,6 @@
+     watchDog = watchDog()
+     # Create a list of tags for monitoring bypasses
+     tagList = watchDog.getImportedTags()
+-    print(tagList)
+     faultList = []
+     bypassList = []
+     logList = []

@@ -1,0 +1,5 @@
+pi       12521  3842  0 15:53 pts/12   00:00:02 python watchDog_V1_1.py
+pi       12770  3842  0 15:54 pts/12   00:00:02 python watchDog_V1_1.py
+pi       13306  3842  3 15:58 pts/12   00:00:03 python watchDog_V1_1.py
+pi       13329  1271  1 15:59 pts/0    00:00:00 bash getProcessId.sh watchDog_V1_1.py
+pi       13332 13329  0 15:59 pts/0    00:00:00 grep watchDog_V1_1.py
